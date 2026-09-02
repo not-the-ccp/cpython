@@ -23,7 +23,17 @@ typedef struct {
 
     _Py_c_array_t cf_finally;       /* context for PEP 765 check */
     int cf_finally_used;
+
+    _Py_c_array_t pipeline;         /* context for pipe-topic check */
+    int pipeline_used;
 } _PyASTPreprocessState;
+
+/* See the pipeline experiment: each active Pipeline body keeps track of
+   whether it has seen a topic ($) reference. */
+typedef struct {
+    expr_ty pipeline;               /* the Pipeline node of this body */
+    int topic_used;                 /* body referenced its own topic */
+} PipelineTopicContext;
 
 #define ENTER_RECURSIVE() \
 if (Py_EnterRecursiveCall(" during compilation")) { \
@@ -60,6 +70,43 @@ pop_cf_context(_PyASTPreprocessState *state)
 {
     assert(state->cf_finally_used > 0);
     state->cf_finally_used--;
+}
+
+static PipelineTopicContext*
+get_pipeline_top(_PyASTPreprocessState *state)
+{
+    int idx = state->pipeline_used;
+    return ((PipelineTopicContext*)state->pipeline.array) + idx;
+}
+
+static int
+push_pipeline_context(_PyASTPreprocessState *state, expr_ty node)
+{
+    if (_Py_CArray_EnsureCapacity(&state->pipeline, state->pipeline_used+1) < 0) {
+        return 0;
+    }
+    state->pipeline_used++;
+    PipelineTopicContext *ctx = get_pipeline_top(state);
+    ctx->pipeline = node;
+    ctx->topic_used = 0;
+    return 1;
+}
+
+static void
+pop_pipeline_context(_PyASTPreprocessState *state)
+{
+    assert(state->pipeline_used > 0);
+    state->pipeline_used--;
+}
+
+// Raise "msg" as a SyntaxError at the location of expr e.
+static int
+pipeline_syntax_error(_PyASTPreprocessState *state, expr_ty e, const char *msg)
+{
+    PyErr_SetString(PyExc_SyntaxError, msg);
+    PyErr_RangedSyntaxLocationObject(state->filename, e->lineno, e->col_offset + 1,
+                                     e->end_lineno, e->end_col_offset + 1);
+    return 0;
 }
 
 static int
@@ -538,6 +585,28 @@ astfold_expr(expr_ty node_, PyArena *ctx_, _PyASTPreprocessState *state)
         CALL(astfold_expr, expr_ty, node_->v.IfExp.body);
         CALL(astfold_expr, expr_ty, node_->v.IfExp.orelse);
         break;
+    case Pipeline_kind:
+        // The LHS is evaluated in the enclosing topic context, so the
+        // context for this body's topic is only pushed after it.
+        CALL(astfold_expr, expr_ty, node_->v.Pipeline.value);
+        if (!push_pipeline_context(state, node_)) {
+            return 0;
+        }
+        CALL(astfold_expr, expr_ty, node_->v.Pipeline.body);
+        if (!get_pipeline_top(state)->topic_used) {
+            pop_pipeline_context(state);
+            return pipeline_syntax_error(state, node_->v.Pipeline.body,
+                                         "pipeline body must reference '$'");
+        }
+        pop_pipeline_context(state);
+        break;
+    case PipeTopic_kind:
+        if (state->pipeline_used == 0) {
+            return pipeline_syntax_error(state, node_,
+                "pipeline topic '$' is only valid in a pipeline body");
+        }
+        get_pipeline_top(state)->topic_used = 1;
+        break;
     case Dict_kind:
         CALL_SEQ(astfold_expr, expr, node_->v.Dict.keys);
         CALL_SEQ(astfold_expr, expr, node_->v.Dict.values);
@@ -981,10 +1050,15 @@ _PyAST_Preprocess(mod_ty mod, PyArena *arena, PyObject *filename, int optimize,
     if (_Py_CArray_Init(&state.cf_finally, sizeof(ControlFlowInFinallyContext), 20) < 0) {
         return -1;
     }
+    if (_Py_CArray_Init(&state.pipeline, sizeof(PipelineTopicContext), 20) < 0) {
+        _Py_CArray_Fini(&state.cf_finally);
+        return -1;
+    }
 
     int ret = astfold_mod(mod, arena, &state);
     assert(ret || PyErr_Occurred());
 
     _Py_CArray_Fini(&state.cf_finally);
+    _Py_CArray_Fini(&state.pipeline);
     return ret;
 }
