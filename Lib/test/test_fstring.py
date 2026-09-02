@@ -1703,9 +1703,12 @@ except Exception:
         self.assertEqual(x, 10)
 
     def test_invalid_syntax_error_message(self):
+        # Use the backtick, which is not a Python token.  '$' would no
+        # longer do here: it is the pipeline topic token, which the
+        # f-string expression parser accepts as a valid expression.
         with self.assertRaisesRegex(SyntaxError,
                                     "f-string: expecting '=', or '!', or ':', or '}'"):
-            compile("f'{a $ b}'", "?", "exec")
+            compile("f'{a ` b}'", "?", "exec")
 
     def test_with_two_commas_in_format_specifier(self):
         error_msg = re.escape("Cannot specify ',' with ','.")
