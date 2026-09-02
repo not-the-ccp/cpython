@@ -83,6 +83,8 @@ struct symtable {
     PyObject *st_private;           /* name of current class or NULL */
     _PyFutureFeatures *st_future;   /* module's future features that affect
                                        the symbol table */
+    PyObject *st_pipeline_topics;   /* list: stack of active pipe-topic
+                                       hidden names (pipeline experiment) */
 };
 
 typedef struct _symtable_entry {

@@ -5,6 +5,7 @@
 #include "pycore_runtime.h"       // _Py_ID()
 #include "pycore_symtable.h"      // PySTEntryObject
 #include "pycore_unicodeobject.h" // _PyUnicode_EqualToASCIIString
+#include "pycore_pipeline.h"      // _PyAST_PipelineTopicName()
 
 #include <stddef.h>               // offsetof()
 
@@ -399,6 +400,8 @@ symtable_new(void)
 
     if ((st->st_stack = PyList_New(0)) == NULL)
         goto fail;
+    if ((st->st_pipeline_topics = PyList_New(0)) == NULL)
+        goto fail;
     if ((st->st_blocks = PyDict_New()) == NULL)
         goto fail;
     st->st_cur = NULL;
@@ -495,6 +498,7 @@ _PySymtable_Free(struct symtable *st)
     Py_XDECREF(st->st_filename);
     Py_XDECREF(st->st_blocks);
     Py_XDECREF(st->st_stack);
+    Py_XDECREF(st->st_pipeline_topics);
     PyMem_Free((void *)st);
 }
 
@@ -2453,6 +2457,53 @@ symtable_visit_expr(struct symtable *st, expr_ty e)
         VISIT(st, expr, e->v.IfExp.body);
         VISIT(st, expr, e->v.IfExp.orelse);
         break;
+    case Pipeline_kind: {
+        PyObject *topic = _PyAST_PipelineTopicName(e);
+        if (topic == NULL) {
+            return 0;
+        }
+        // The LHS is evaluated in the enclosing topic context.
+        if (!symtable_visit_expr(st, e->v.Pipeline.value)) {
+            Py_DECREF(topic);
+            return 0;
+        }
+        // The hidden topic binding is an ordinary (implicit) local of
+        // the current Python scope, so nested lambdas and comprehensions
+        // capture it through normal free/cell-variable analysis.
+        if (!symtable_add_def(st, topic, DEF_LOCAL, LOCATION(e))) {
+            Py_DECREF(topic);
+            return 0;
+        }
+        if (PyList_Append(st->st_pipeline_topics, topic) < 0) {
+            Py_DECREF(topic);
+            return 0;
+        }
+        int result = symtable_visit_expr(st, e->v.Pipeline.body);
+        Py_DECREF(topic);
+        Py_ssize_t last = PyList_GET_SIZE(st->st_pipeline_topics) - 1;
+        Py_DECREF(PyList_GET_ITEM(st->st_pipeline_topics, last));
+        PyList_SET_ITEM(st->st_pipeline_topics, last, NULL);
+        PyList_SetSlice(st->st_pipeline_topics, last, last + 1, NULL);
+        if (!result) {
+            return 0;
+        }
+        break;
+    }
+    case PipeTopic_kind: {
+        Py_ssize_t depth = PyList_GET_SIZE(st->st_pipeline_topics);
+        if (depth == 0) {
+            // _PyAST_Preprocess rejects these, but be robust if the
+            // symtable is used on a hand-built AST.
+            PyErr_SetString(PyExc_SystemError,
+                            "PipeTopic node outside of a Pipeline body");
+            return 0;
+        }
+        PyObject *topic = PyList_GET_ITEM(st->st_pipeline_topics, depth - 1);
+        if (!symtable_add_def(st, topic, USE, LOCATION(e))) {
+            return 0;
+        }
+        break;
+    }
     case Dict_kind:
         VISIT_SEQ_WITH_NULL(st, expr, e->v.Dict.keys);
         VISIT_SEQ(st, expr, e->v.Dict.values);
