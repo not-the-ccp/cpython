@@ -18,6 +18,7 @@ class _Precedence:
     TUPLE = auto()           # <expr1>, <expr2>
     YIELD = auto()           # 'yield', 'yield from'
     TEST = auto()            # 'if'-'else', 'lambda'
+    PIPE = auto()             # '|>'
     OR = auto()              # 'or'
     AND = auto()             # 'and'
     NOT = auto()             # 'not'
@@ -767,6 +768,17 @@ class Unparser(NodeVisitor):
             self.write(" else ")
             self.set_precedence(_Precedence.TEST, node.orelse)
             self.traverse(node.orelse)
+
+    def visit_Pipeline(self, node):
+        with self.require_parens(_Precedence.PIPE, node):
+            self.set_precedence(_Precedence.PIPE, node.value)
+            self.traverse(node.value)
+            self.write(" |> ")
+            self.set_precedence(_Precedence.OR, node.body)
+            self.traverse(node.body)
+
+    def visit_PipeTopic(self, node):
+        self.write("$")
 
     def visit_Set(self, node):
         if node.elts:

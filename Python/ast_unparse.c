@@ -118,6 +118,7 @@ append_repr(PyUnicodeWriter *writer, PyObject *obj)
 enum {
     PR_TUPLE,
     PR_TEST,            /* 'if'-'else', 'lambda' */
+    PR_PIPE,            /* '|>' */
     PR_OR,              /* 'or' */
     PR_AND,             /* 'and' */
     PR_NOT,             /* 'not' */
@@ -307,6 +308,17 @@ append_ast_lambda(PyUnicodeWriter *writer, expr_ty e, int level)
     APPEND_STR(": ");
     APPEND_EXPR(e->v.Lambda.body, PR_TEST);
     APPEND_STR_IF(level > PR_TEST, ")");
+    return 0;
+}
+
+static int
+append_ast_pipeline(PyUnicodeWriter *writer, expr_ty e, int level)
+{
+    APPEND_STR_IF(level > PR_PIPE, "(");
+    APPEND_EXPR(e->v.Pipeline.value, PR_PIPE);
+    APPEND_STR(" |> ");
+    APPEND_EXPR(e->v.Pipeline.body, PR_OR);
+    APPEND_STR_IF(level > PR_PIPE, ")");
     return 0;
 }
 
@@ -944,6 +956,8 @@ append_ast_expr(PyUnicodeWriter *writer, expr_ty e, int level)
         return append_ast_lambda(writer, e, level);
     case IfExp_kind:
         return append_ast_ifexp(writer, e, level);
+    case Pipeline_kind:
+        return append_ast_pipeline(writer, e, level);
     case Dict_kind:
         return append_ast_dict(writer, e);
     case Set_kind:
