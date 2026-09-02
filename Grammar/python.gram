@@ -706,9 +706,13 @@ expressions[expr_ty]:
 expression[expr_ty] (memo):
     | invalid_expression
     | invalid_legacy_expression
-    | a=disjunction 'if' b=disjunction 'else' c=expression { _PyAST_IfExp(b, a, c, EXTRA) }
-    | disjunction
+    | a=pipeline 'if' b=disjunction 'else' c=expression { _PyAST_IfExp(b, a, c, EXTRA) }
+    | pipeline
     | lambdef
+
+pipeline[expr_ty]:
+    | a=pipeline '|>' b=disjunction { _PyAST_Pipeline(a, b, EXTRA) }
+    | disjunction
 
 yield_expr[expr_ty]:
     | 'yield' 'from' a=expression { _PyAST_YieldFrom(a, EXTRA) }
@@ -875,6 +879,7 @@ atom[expr_ty]:
     | 'True' { _PyAST_Constant(Py_True, NULL, EXTRA) }
     | 'False' { _PyAST_Constant(Py_False, NULL, EXTRA) }
     | 'None' { _PyAST_Constant(Py_None, NULL, EXTRA) }
+    | '$' { _PyAST_PipeTopic(EXTRA) }
     | &(STRING|FSTRING_START|TSTRING_START) strings
     | NUMBER
     | &'(' (tuple | group | genexp)
@@ -1219,8 +1224,8 @@ invalid_kwarg:
 
 # IMPORTANT: Note that the "_without_invalid" suffix causes the rule to not call invalid rules under it
 expression_without_invalid[expr_ty]:
-    | a=disjunction 'if' b=disjunction 'else' c=expression { _PyAST_IfExp(b, a, c, EXTRA) }
-    | disjunction
+    | a=pipeline 'if' b=disjunction 'else' c=expression { _PyAST_IfExp(b, a, c, EXTRA) }
+    | pipeline
     | lambdef
 invalid_legacy_expression:
     | a=NAME !'(' b=star_expressions {

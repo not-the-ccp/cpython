@@ -1068,6 +1068,10 @@ _PyPegen_get_expr_name(expr_ty e)
             return "tuple";
         case Lambda_kind:
             return "lambda";
+        case Pipeline_kind:
+            return "pipeline";
+        case PipeTopic_kind:
+            return "pipeline topic";
         case Call_kind:
             return "function call";
         case BoolOp_kind:
