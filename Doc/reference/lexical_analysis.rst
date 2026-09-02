@@ -1553,6 +1553,8 @@ is also available in the :mod:`!token` module documentation.
       | arithmetic_operator
       | "..."
       | other_op
+      | pipe_operator
+      | pipe_topic
 
    assignment_operator:   "+=" | "-=" | "*=" | "**=" | "/="  | "//=" | "%=" |
                           "&=" | "|=" | "^=" | "<<=" | ">>=" | "@="  | ":="
@@ -1562,6 +1564,8 @@ is also available in the :mod:`!token` module documentation.
    other_delimiter:       ","  | ":"  | "!"  | ";"   | "="   | "->"
    arithmetic_operator:   "+"  | "-"  | "**" | "*"   | "//"  | "/"   | "%"
    other_op:              "."  | "@"
+   pipe_operator:         "|>"
+   pipe_topic:            "$"
 
 .. note::
 

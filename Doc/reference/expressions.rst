@@ -2291,6 +2291,64 @@ their suffixes::
    expr3, expr4 = expr1, expr2
 
 
+.. _pipeline-expressions:
+
+Pipeline expressions
+====================
+
+.. index::
+   single: pipeline expression
+   single: | (pipe); pipeline operator
+   single: $ (dollar sign); pipeline topic
+
+.. productionlist:: python-grammar
+   pipeline: `pipeline` "|>" `disjunction` | `disjunction`
+   expression: `pipeline` ["if" `disjunction` "else" `expression`] | `lambdef`
+
+The pipeline operator ``|>`` passes the value of its left-hand expression to
+a *pipeline body*, an expression that refers to that value through the
+*pipeline topic* ``$``::
+
+   value |> body
+
+The left-hand value is evaluated exactly once.  It is bound to a
+compiler-generated name that the body accesses with ``$``, and the value of
+the body is the value of the complete pipeline expression.  The body must
+reference ``$`` at least once; a pipeline whose body does not use the topic
+is a :exc:`SyntaxError`, as is a ``$`` that appears outside a pipeline body.
+
+There is no implicit call or argument injection: ``x |> f`` and ``x |> f()``
+are errors unless the body uses the topic.  Write the call explicitly, with
+the topic in the argument position where the value belongs::
+
+   x |> f($)
+   x |> f(*$)
+   x |> f(**$)
+   x |> $.method()
+
+Because the body is a full expression, it may use the topic in any way: as a
+subscript (``x |> $[0]``), inside a comprehension or nested pipeline, in an
+``await`` (``request |> await send($)``), or multiple times in one stage.
+
+The operator is left-associative: ``x |> f($) |> g($)`` is parsed as
+``(x |> f($)) |> g($)``.  A nested pipeline receives the value of the outer
+body as its left-hand value, and its ``$`` refers to that inner value; the
+outer body must still use the outer ``$``.
+
+Scoping.  The compiler-generated name is a local of the scope containing the
+pipeline, so inside a function or method the topic behaves as an ordinary
+local variable, and a closure defined in the body can capture it.  At module
+or class scope the binding is a global or class attribute that cannot be
+spelled in source; it is visible through ordinary introspection of that
+namespace.  This is an artifact of the experimental implementation and may
+change.
+
+.. note::
+
+   The pipeline operator is an experimental feature of this branch.  See the
+   design document :source:`Misc/PIPELINE_EXPERIMENT.md`.
+
+
 .. _operator-summary:
 
 Operator precedence
@@ -2351,6 +2409,9 @@ precedence and have a left-to-right chaining feature as described in the
 | :keyword:`and`                                | Boolean AND                         |
 +-----------------------------------------------+-------------------------------------+
 | :keyword:`or`                                 | Boolean OR                          |
++-----------------------------------------------+-------------------------------------+
+| ``x |> y``                                    | Pipeline; *y* is the pipeline body, |
+|                                               | ``$`` stands for *x*                |
 +-----------------------------------------------+-------------------------------------+
 | :keyword:`if <if_expr>` -- :keyword:`!else`   | Conditional expression              |
 +-----------------------------------------------+-------------------------------------+
