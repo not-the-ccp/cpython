@@ -30,6 +30,7 @@
 #include "pycore_unicodeobject.h" // _PyUnicode_EqualToASCIIString
 #include "pycore_ceval.h"         // SPECIAL___ENTER__
 #include "pycore_template.h"      // _PyTemplate_Type
+#include "pycore_pipeline.h"      // _PyAST_PipelineTopicName()
 
 #define NEED_OPCODE_METADATA
 #include "pycore_opcode_metadata.h" // _PyOpcode_opcode_metadata, _PyOpcode_num_popped/pushed
@@ -5208,6 +5209,48 @@ codegen_visit_expr(compiler *c, expr_ty e)
         return codegen_lambda(c, e);
     case IfExp_kind:
         return codegen_ifexp(c, e);
+    case Pipeline_kind: {
+        PyObject *topics = _PyCompile_PipelineTopics(c);
+        PyObject *topic = _PyAST_PipelineTopicName(e);
+        if (topic == NULL) {
+            return ERROR;
+        }
+        // Compile the LHS first; it is evaluated in the enclosing
+        // topic context.
+        if (codegen_visit_expr(c, e->v.Pipeline.value) < 0) {
+            Py_DECREF(topic);
+            return ERROR;
+        }
+        // Store the LHS value in this pipe step's hidden topic binding.
+        if (codegen_nameop(c, LOC(e->v.Pipeline.body), (identifier)topic,
+                           Store) < 0) {
+            Py_DECREF(topic);
+            return ERROR;
+        }
+        if (PyList_Append(topics, topic) < 0) {
+            Py_DECREF(topic);
+            return ERROR;
+        }
+        int result = codegen_visit_expr(c, e->v.Pipeline.body);
+        Py_DECREF(topic);
+        Py_ssize_t last = PyList_GET_SIZE(topics) - 1;
+        Py_DECREF(PyList_GET_ITEM(topics, last));
+        PyList_SET_ITEM(topics, last, NULL);
+        PyList_SetSlice(topics, last, last + 1, NULL);
+        return result;
+    }
+    case PipeTopic_kind: {
+        PyObject *topics = _PyCompile_PipelineTopics(c);
+        Py_ssize_t depth = PyList_GET_SIZE(topics);
+        if (depth == 0) {
+            // _PyAST_Preprocess rejects these, but be robust if codegen
+            // is used on a hand-built AST.
+            return _PyCompile_Error(c, loc, "internal error: pipe topic "
+                            "outside of a pipeline body");
+        }
+        PyObject *topic = PyList_GET_ITEM(topics, depth - 1);
+        return codegen_nameop(c, loc, (identifier)topic, Load);
+    }
     case Dict_kind:
         return codegen_dict(c, e);
     case Set_kind:

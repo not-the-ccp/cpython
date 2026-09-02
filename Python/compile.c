@@ -99,6 +99,8 @@ typedef struct _PyCompiler {
                                     including names tuple */
     struct compiler_unit *u;     /* compiler state for current block */
     PyObject *c_stack;           /* Python list holding compiler_unit ptrs */
+    PyObject *c_pipeline_topics; /* Python list holding active pipe-topic
+                                    hidden names (pipeline experiment) */
 
     bool c_save_nested_seqs;     /* if true, construct recursive instruction sequences
                                   * (including instructions for nested code objects)
@@ -119,6 +121,11 @@ compiler_setup(compiler *c, mod_ty mod, PyObject *filename,
 
     c->c_stack = PyList_New(0);
     if (!c->c_stack) {
+        return ERROR;
+    }
+
+    c->c_pipeline_topics = PyList_New(0);
+    if (!c->c_pipeline_topics) {
         return ERROR;
     }
 
@@ -158,6 +165,7 @@ compiler_free(compiler *c)
     Py_XDECREF(c->c_filename);
     Py_XDECREF(c->c_const_cache);
     Py_XDECREF(c->c_stack);
+    Py_XDECREF(c->c_pipeline_topics);
     PyMem_Free(c);
 }
 
@@ -1246,6 +1254,12 @@ instr_sequence *
 _PyCompile_InstrSequence(compiler *c)
 {
     return c->u->u_instr_sequence;
+}
+
+PyObject *
+_PyCompile_PipelineTopics(compiler *c)
+{
+    return c->c_pipeline_topics;
 }
 
 int
